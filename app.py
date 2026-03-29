@@ -1,3 +1,4 @@
+import os
 from flask import Flask, request
 from twilio.twiml.messaging_response import MessagingResponse
 
@@ -38,5 +39,5 @@ def whatsapp_bot():
 
 if __name__ == "__main__":
     print("Démarrage du serveur webhook de la Pharmacie Santé Plus !")
-    print("En attente de requêtes sur le port 5001 (Endpoint: /webhook) ...")
-    app.run(host='0.0.0.0', port=5001, debug=True)
+    print(f"En attente de requêtes sur le port {os.environ.get('PORT', 5001)} (Endpoint: /webhook) ...")
+    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5001)), debug=False)
