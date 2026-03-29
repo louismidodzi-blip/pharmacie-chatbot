@@ -3,6 +3,8 @@ from flask import Flask, request
 from twilio.twiml.messaging_response import MessagingResponse
 
 app = Flask(__name__)
+from flask_cors import CORS
+CORS(app)
 
 # Réponses scénarisées de la Pharmacie Santé Plus
 RESPONSES = {
