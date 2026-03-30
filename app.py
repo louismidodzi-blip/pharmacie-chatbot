@@ -1,6 +1,6 @@
 import os
-from flask import Flask, request
-from twilio.twiml.messaging_response import MessagingResponse
+from flask import Flask, request, jsonify
+import requests
 
 app = Flask(__name__)
 from flask_cors import CORS
@@ -14,30 +14,86 @@ RESPONSES = {
     'default': "👋 *Akwaba ! Bienvenue sur le service client WhatsApp de la Pharmacie Santé Plus.*\n\nComment puis-je vous aider aujourd'hui ? Répondez avec un des mots suivants ou un numéro :\n\n1️⃣ *Horaires* (ou Gardes)\n2️⃣ *Dispo* (Vérifier un médicament)\n3️⃣ *Ordonnance* (Envoyer votre prescription)"
 }
 
+VERIFY_TOKEN = "pharmacie2026"
+
+@app.route("/webhook", methods=['GET'])
+def verify_webhook():
+    """
+    Validation du Webhook pour l'API WhatsApp Cloud de Meta.
+    """
+    mode = request.args.get("hub.mode")
+    token = request.args.get("hub.verify_token")
+    challenge = request.args.get("hub.challenge")
+
+    if mode and token:
+        if mode == "subscribe" and token == VERIFY_TOKEN:
+            print("Webhook vérifié avec succès !")
+            return challenge, 200
+        else:
+            return "Forbidden", 403
+    return "Bad Request", 400
+
 @app.route("/webhook", methods=['POST'])
 def whatsapp_bot():
     """
-    Webhook qui reçoit et traite les messages WhatsApp entrants via Twilio.
+    Webhook qui reçoit et traite les messages WhatsApp entrants via Meta.
     """
-    # Récupérer le message texte de l'utilisateur
-    incoming_msg = request.values.get('Body', '').lower().strip()
-    
-    # Créer la réponse Twilio (TWiML)
-    resp = MessagingResponse()
-    msg = resp.message()
+    body = request.get_json()
 
-    # Logique d'analyse simple par mots-clés
-    if any(word in incoming_msg for word in ['horaire', 'heure', 'ouvert', 'fermé', 'garde', '1']):
-        msg.body(RESPONSES['horaires'])
-    elif any(word in incoming_msg for word in ['dispo', 'médicament', 'medicament', 'stock', 'prix', '2']):
-        msg.body(RESPONSES['disponibilite'])
-    elif any(word in incoming_msg for word in ['ordonnance', 'prescription', 'photo', '3']):
-        msg.body(RESPONSES['ordonnance'])
+    if body and body.get("object"):
+        if body.get("entry") and body["entry"][0].get("changes") and body["entry"][0]["changes"][0].get("value") and body["entry"][0]["changes"][0]["value"].get("messages"):
+            value = body["entry"][0]["changes"][0]["value"]
+            message = value["messages"][0]
+            phone_number_id = value["metadata"]["phone_number_id"]
+            from_number = message["from"]
+            
+            if message.get("type") == "text":
+                incoming_msg = message["text"]["body"].lower().strip()
+                
+                # Logique d'analyse simple par mots-clés
+                if any(word in incoming_msg for word in ['horaire', 'heure', 'ouvert', 'fermé', 'garde', '1']):
+                    response_text = RESPONSES['horaires']
+                elif any(word in incoming_msg for word in ['dispo', 'médicament', 'medicament', 'stock', 'prix', '2']):
+                    response_text = RESPONSES['disponibilite']
+                elif any(word in incoming_msg for word in ['ordonnance', 'prescription', 'photo', '3']):
+                    response_text = RESPONSES['ordonnance']
+                else:
+                    response_text = RESPONSES['default']
+
+                # Envoi de la réponse via Meta Graph API
+                send_message(phone_number_id, from_number, response_text)
+
+        return "EVENT_RECEIVED", 200
     else:
-        # Message par défaut s'il ne reconnaît pas le contexte
-        msg.body(RESPONSES['default'])
+        return "Not Found", 404
 
-    return str(resp)
+def send_message(phone_number_id, to_number, text):
+    """
+    Envoie un message via l'API WhatsApp Cloud de Meta.
+    """
+    token = os.environ.get("WHATSAPP_TOKEN")
+    if not token:
+        print("Erreur: WHATSAPP_TOKEN n'est pas configuré en variable d'environnement.")
+        return
+        
+    url = f"https://graph.facebook.com/v17.0/{phone_number_id}/messages"
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json"
+    }
+    data = {
+        "messaging_product": "whatsapp",
+        "to": to_number,
+        "type": "text",
+        "text": {
+            "body": text
+        }
+    }
+    
+    try:
+        requests.post(url, headers=headers, json=data)
+    except Exception as e:
+        print(f"Erreur d'envoi du message: {e}")
 
 if __name__ == "__main__":
     print("Démarrage du serveur webhook de la Pharmacie Santé Plus !")
